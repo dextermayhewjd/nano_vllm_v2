@@ -51,7 +51,11 @@ class GQAAttn(nn.Module):
         self.groups = num_q_heads // num_kv_heads
         self.causal = causal
 
-    def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, attn_mask=None) -> torch.Tensor:
+    def forward(self, 
+                q: torch.Tensor, 
+                k: torch.Tensor, 
+                v: torch.Tensor, 
+                attn_mask=None) -> torch.Tensor:
         """
         q: [B, Hq,  S, D]
         k: [B, Hkv, S, D]
@@ -85,6 +89,8 @@ class GQAAttn(nn.Module):
             attn_mask=attn_mask,
             dropout_p=0.0,
             is_causal=(self.causal and attn_mask is None)
+            #如果没传 attn_mask，就用 is_causal=True（自动下三角）
+            #如果你传了 attn_mask，就把 is_causal 关掉，完全依赖 attn_mask
         )  # [B*Hkv*G, S, D]
 
         # 4) reshape 回来: [B, Hkv, G, S, D] -> [B, Hq, S, D]

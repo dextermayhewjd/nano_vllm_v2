@@ -22,5 +22,5 @@ class RMSNorm(nn.Module):
         x.mul_(torch.rsqrt(mean_square + self.eps))
         
         # 必须要转换回 bf16后再和本地的layernorm层 相乘
-        x.to(in_dtype).mul_(self.weight)
+        x = x.to(in_dtype).mul_(self.weight)
         return x

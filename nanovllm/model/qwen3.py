@@ -124,6 +124,23 @@ class Qwen3DecoderLayer(nn.Module):
         self.post_attention_layernorm = RMSNorm(hidden_size=config.hidden_size, eps=config.rms_norm_eps) # 放一个layer 带weight的
         self.self_attn = Qwen3Attention(config=config)
         
+    def forward(self,
+                hidden_states:torch.Tensor,
+                token_position:torch.Tensor
+                    ):
+        # input layernorm 
+        residual = hidden_states
+        hidden_states = self.input_layernorm(hidden_states)
+        hidden_states = self.self_attn(token_position, hidden_states)
+        hidden_states = residual + hidden_states
+        
+        # 
+        residual = hidden_states
+        hidden_states = self.post_attention_layernorm(hidden_states)
+        hidden_states = self.mlp(hidden_states)
+        hidden_states = residual + hidden_states
+
+        return hidden_states
 
 class Qwen3Model(nn.Module):
     def __init__(self,
@@ -137,7 +154,18 @@ class Qwen3Model(nn.Module):
                             hidden_size=config.hidden_size,
                             eps=config.rms_norm_eps                
                             )
-    
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        token_position: torch.Tensor,
+    ) -> torch.Tensor:
+        hidden_states = self.embed_tokens(input_ids)          
+             # [B, S,hidden_size]
+        for layer in self.layers:
+            hidden_states = layer( hidden_states,token_position)
+        hidden_states = self.norm(hidden_states)
+        
+        return hidden_states
 class Qwen3ForCausalLM(nn.Module):
     def __init__(self,
                 config:Qwen3Config
@@ -147,3 +175,7 @@ class Qwen3ForCausalLM(nn.Module):
         self.model = Qwen3Model(config=config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         
+    def forward(self,input_ids,token_position):
+        hidden_states = self.model(input_ids, token_position)
+        logits = self.lm_head(hidden_states)
+        return logits
