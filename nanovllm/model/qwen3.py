@@ -76,12 +76,12 @@ class Qwen3Attention(nn.Module):
 
         # ---- 4) RoPE（在这里对 q/k 做旋转）----
         q = self.rope(
-                        token_position=token_position,
-                        hidden_states = q
+                hidden_states = q,
+                token_position=token_position        
                         )
         k = self.rope(
-                    token_position = token_position,
-                    hidden_states = k
+                    hidden_states = k,
+                    token_position = token_position
                     )
         # ---- 5) GQA Attention ----
         # q: [B, Hq, S, D], k/v: [B, Hkv, S, D] -> out: [B, Hq, S,D]
