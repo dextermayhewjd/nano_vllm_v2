@@ -52,7 +52,7 @@ class Qwen3Attention(nn.Module):
                                  )
     def forward(
                 self,
-                token_position:torch.Tensor,
+                token_positions:torch.Tensor,
                 hidden_states:torch.Tensor
                 ):
         
@@ -76,12 +76,12 @@ class Qwen3Attention(nn.Module):
 
         # ---- 4) RoPE（在这里对 q/k 做旋转）----
         q = self.rope(
-                hidden_states = q,
-                token_position=token_position        
+                x = q,
+                token_positions=token_positions        
                         )
         k = self.rope(
-                    hidden_states = k,
-                    token_position = token_position
+                    x = k,
+                    token_positions = token_positions
                     )
         # ---- 5) GQA Attention ----
         # q: [B, Hq, S, D], k/v: [B, Hkv, S, D] -> out: [B, Hq, S,D]
@@ -126,12 +126,12 @@ class Qwen3DecoderLayer(nn.Module):
         
     def forward(self,
                 hidden_states:torch.Tensor,
-                token_position:torch.Tensor
+                token_positions:torch.Tensor
                     ):
         # input layernorm 
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
-        hidden_states = self.self_attn(token_position, hidden_states)
+        hidden_states = self.self_attn(token_positions, hidden_states)
         hidden_states = residual + hidden_states
         
         # 
@@ -157,12 +157,12 @@ class Qwen3Model(nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor,
-        token_position: torch.Tensor,
+        token_positions: torch.Tensor,
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)          
              # [B, S,hidden_size]
         for layer in self.layers:
-            hidden_states = layer( hidden_states,token_position)
+            hidden_states = layer( hidden_states,token_positions)
         hidden_states = self.norm(hidden_states)
         
         return hidden_states
@@ -175,7 +175,7 @@ class Qwen3ForCausalLM(nn.Module):
         self.model = Qwen3Model(config=config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         
-    def forward(self,input_ids,token_position):
-        hidden_states = self.model(input_ids, token_position)
+    def forward(self,input_ids,token_positions):
+        hidden_states = self.model(input_ids, token_positions)
         logits = self.lm_head(hidden_states)
         return logits
