@@ -43,7 +43,7 @@ class Qwen3Attention(nn.Module):
         self.rope = RotaryEmbedding(
                                     head_dim = self.head_dim,
                                     max_seq_len = config.max_position_embeddings,
-                                    rope_theta = config.rope_theta
+                                    rope_theta = config.rope_parameters["rope_theta"]
                                     )
         self.attention = GQAAttn(num_q_heads= self.num_attention_heads,
                                  num_kv_heads= self.num_key_value_heads,
