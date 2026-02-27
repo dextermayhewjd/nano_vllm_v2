@@ -9,8 +9,13 @@ def main():
     
     index_path = os.path.join(model_dir, "model.safetensors.index.json")
     wm = json.load(open(index_path, "r", encoding="utf-8"))["weight_map"]
+    
+    
+    # 所有层的weight 构成了keys 的set
     ckpt_keys = set(wm.keys())
 
+    # for key in ckpt_keys:
+    #     print(key)
     # 1) 构建你的空壳模型（只要能init就行）
 
     config = Qwen3Config.from_pretrained(model_dir)

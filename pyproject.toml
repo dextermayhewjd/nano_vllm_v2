@@ -10,6 +10,7 @@ dependencies = [
     "einops>=0.8.2",
     "httpx[socks]>=0.28.1",
     "huggingface-hub>=1.4.1",
+    "jaxtyping>=0.3.9",
     "ninja>=1.13.0",
     "torch>=2.10.0",
     "transformers>=5.2.0",

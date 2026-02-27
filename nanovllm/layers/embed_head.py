@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch
 import math
+import torch.nn.functional as F
 
 class Embedding(nn.Module):
     def __init__(self,
@@ -31,5 +32,11 @@ class Embedding(nn.Module):
         
         param.data.copy_(loaded_weight)
         
-    def forward(self,token_ids:torch.Tensor)-> torch.Tensor:
-        return self.weights[token_ids]
+    # def forward(self,token_ids:torch.Tensor)-> torch.Tensor:
+    #     return self.weights[token_ids]
+
+    def forward(self, x: torch.Tensor):
+        # return self.weights[token_ids]    
+        
+        y = F.embedding(x, self.weight)
+        return y
