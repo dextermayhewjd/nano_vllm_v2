@@ -57,42 +57,44 @@ class GQAAttn(nn.Module):
                 v: torch.Tensor, 
                 attn_mask=None) -> torch.Tensor:
         """
-        q: [B, Hq,  S, D]
-        k: [B, Hkv, S, D]
-        v: [B, Hkv, S, D]
-        return: [B, Hq, S, D]
+        q: [B, Hq,  Sq, D]   Sq = S (prefill) 或 1 (decode) 
+        k: [B, Hkv, Sk, D]   Sk = 历史长度（含当前 token)
+        v: [B, Hkv, Sk, D]    
+        return: [B, Hq, Sq, D]
         """
         # 这是 q 和 k的shape  都是 (batch , head_num , seq_len , head_dim)         
-        B, Hq, S, D = q.shape
+        B, Hq, Sq, D = q.shape
         _, Hkv, Sk, Dk = k.shape
         
         assert Hq == self.num_q_heads 
         assert Hkv == self.num_kv_heads
-        # prefill 要求 他们的seq 长是一样的
-        assert S == Sk
+        # prefill 要求 他们的seq 长是一样的 assert S == Sk 现在支持两种所以所以舍去
+        # 注意：去掉 assert Sq == Sk，decode 时 Sq=1，Sk=历史 长度，不相等是正常的 
+         
         #要求这里的head dim 是一样的  
         assert D == Dk
 
-
-        # 1) reshape Q into grouped form: [B, Hkv, G, S, D]
-        q = q.reshape(B, Hkv, self.groups, S, D).reshape(B*Hkv, self.groups, S, D)  # 推荐
-        k = k.reshape(B * Hkv, 1, S, D).expand(B * Hkv, self.groups, S, D)
-        v = v.reshape(B * Hkv, 1, S, D).expand(B * Hkv, self.groups, S, D)
-
+        # 1) reshape Q/K/V into grouped form                  
+        # Q: [B, Hkv, G, Sq, D]  
+        # K/V: [B*Hkv, G, Sk, D]（G 维度 expand）                                                   
+        q = q.reshape(B, Hkv, self.groups, Sq, D).reshape(B * Hkv, self.groups, Sq, D)                                      
+        k = k.reshape(B * Hkv, 1, Sk, D).expand(B * Hkv, self.groups, Sk, D)                                                
+        v = v.reshape(B * Hkv, 1, Sk, D).expand(B * Hkv, self.groups, Sk, D) 
         # k/v 需要为每个 group “逻辑上共享”，但不 repeat
 
-
+        is_causal=(self.causal and (Sq == Sk) and attn_mask is None)
+        #如果没传 attn_mask，就用 is_causal=True（自动下三角）
+            #如果你传了 attn_mask，就把 is_causal 关掉，完全依赖 attn_mask
         # 3) scaled_dot_product_attention
         # 这里用 PyTorch 的 SDPA，内部会自动走 FlashAttention / math / mem-efficient
         out = F.scaled_dot_product_attention( # 注意这里只接受3d或者4d 
             q, k, v,
             attn_mask=attn_mask,
             dropout_p=0.0,
-            is_causal=(self.causal and attn_mask is None)
-            #如果没传 attn_mask，就用 is_causal=True（自动下三角）
-            #如果你传了 attn_mask，就把 is_causal 关掉，完全依赖 attn_mask
+            is_causal=is_causal
+            
         )  # [B*Hkv*G, S, D]
 
         # 4) reshape 回来: [B, Hkv, G, S, D] -> [B, Hq, S, D]
-        out = out.reshape(B, Hkv, self.groups, S, D).reshape(B, Hq, S, D)
+        out = out.reshape(B, Hkv, self.groups, Sq, D).reshape(B, Hq, Sq, D)
         return out
