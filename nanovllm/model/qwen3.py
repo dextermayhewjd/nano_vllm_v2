@@ -1,18 +1,22 @@
 import torch
 from torch import nn
+import torch.nn.functional as F
 from transformers import Qwen3Config
 from nanovllm.layers.linear import Linear
 from nanovllm.layers.layernorn import RMSNorm
 from nanovllm.layers.embed_head import Embedding
 from nanovllm.layers.rotary_embedding import RotaryEmbedding
 from nanovllm.layers.attention import GQAAttn
-import torch.nn.functional as F
+from nanovllm.layers.kv_cache import KVCache  
+
+
+
 class Qwen3Attention(nn.Module):
     def __init__(
         self,
         config:Qwen3Config ):
         super().__init__()
-        
+        self.kv_cache = None   # + 默认无 cache，由外部 setup_cache 初始化 
         self.hidden_size = config.hidden_size
         self.rms_norm_eps = config.rms_norm_eps
         
@@ -50,6 +54,15 @@ class Qwen3Attention(nn.Module):
                                  head_dim= self.head_dim,
                                  causal=True
                                  )
+    def setup_cache(self, max_seq_len: int, dtype: torch.dtype, device):  
+          self.kv_cache = KVCache(                                                                                                       
+                            num_kv_heads=self.num_key_value_heads,
+                            max_seq_len=max_seq_len,
+                            head_dim=self.head_dim,
+                            dtype=dtype,
+                            device=device,
+      )
+    
     def forward(
                 self,
                 token_positions:torch.Tensor,
@@ -83,6 +96,18 @@ class Qwen3Attention(nn.Module):
                     x = k,
                     token_positions = token_positions
                     )
+        
+        # ---- 5) KV Cache write / read ----  先实现了单个token
+        if self.kv_cache is not None:                    
+            self.kv_cache.write(k[0], v[0])               
+            #k[0]: [Hkv,S, D]，去掉 B 维写入
+            
+            k_full, v_full = self.kv_cache.read()         
+            #读回完整历史[Hkv, T, D]
+            k = k_full.unsqueeze(0)                  
+            # 补回 B 维 →[1, Hkv, T, D]
+            v = v_full.unsqueeze(0)                  
+        
         # ---- 5) GQA Attention ----
         # q: [B, Hq, S, D], k/v: [B, Hkv, S, D] -> out: [B, Hq, S,D]
         attn_out = self.attention(q,k,v)
@@ -174,7 +199,14 @@ class Qwen3ForCausalLM(nn.Module):
         
         self.model = Qwen3Model(config=config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-        
+    def setup_cache(self, max_seq_len: int, dtype: torch.dtype, device):
+      for layer in self.model.layers:
+          layer.self_attn.setup_cache(max_seq_len, dtype, device)
+    
+    def reset_cache(self):
+        for layer in self.model.layers:
+            if layer.self_attn.kv_cache is not None:
+                layer.self_attn.kv_cache.reset()
     def forward(self,input_ids,token_positions):
         hidden_states = self.model(input_ids, token_positions)
         logits = self.lm_head(hidden_states)
