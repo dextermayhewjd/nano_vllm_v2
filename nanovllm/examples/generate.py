@@ -9,7 +9,7 @@ from transformers import AutoTokenizer, Qwen3Config
 
 from nanovllm.model.qwen3 import Qwen3ForCausalLM
 from nanovllm.utils.loader import load_weights
-
+from nanovllm.engine.model_runner import ModelRunner
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -123,91 +123,106 @@ def greedy_generate_with_cache(
 
 def main() -> None:
     args = parse_args()
+    runner = ModelRunner(
+          model_dir=args.model_dir,
+          device=args.device,
+          dtype=torch.bfloat16 if "cuda" in args.device else torch.float32,
+      )
 
-    # 获取tokenizer和qwen的config用于构建qwen3模型
-    print(f"Loading tokenizer/config from: {args.model_dir}")
-    tokenizer = AutoTokenizer.from_pretrained(args.model_dir, trust_remote_code=True)
-    config = Qwen3Config.from_pretrained(args.model_dir)
+    completion = runner.generate(args.prompt, args.max_new_tokens)
 
-    # 使用config来构建qwen3 模型
-    # 并且使用自建的load weight来加载weight
-    print("Building nano model and loading weights...")
-    model = Qwen3ForCausalLM(config)
-    load_weights(model, args.model_dir)
-
-    dtype = torch.bfloat16 if args.device == "cuda:1" else torch.float32
-    model = model.to(device=args.device, dtype=dtype)
-    model.eval()
-
-    #注意此处tokenizer即使拿到的是str也会返回的encoded字典里的[input_ids]也是[B,S]
-    encoded = tokenizer(args.prompt, return_tensors="pt")
-    #也就是这里暂时是[1,S]
-    input_ids = encoded["input_ids"].to(args.device)
-
-    # 注意此处是单条prompt
-    print(f"Prompt token length: {input_ids.shape[1]}")
-
-    # ======== 原始 no_cache 版本（已验证正确）========
-    # output_ids = greedy_generate_no_cache(
-    #     model=model,
-    #     input_ids=input_ids,
-    #     max_new_tokens=args.max_new_tokens,
-    #     eos_token_id=tokenizer.eos_token_id,
-    # )
-    #
-    # #注意这里只有一个逗号 是取原本input_ids.shape[1] 也就是s之后的所有token
-    # completion_ids = output_ids[:, input_ids.shape[1] :]
-    # # 这里decode 两个东西 一个是全文对应full text
-    # # 另一个对应completion_text 用的completion_text
-    # full_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    # completion_text = tokenizer.decode(completion_ids[0], skip_special_tokens=True)
-    #
-    # print("\n=== Generation Result ===")
-    # print(f"Prompt: {args.prompt}")
-    # print(f"Completion: {completion_text}")
-    # print(f"Full text: {full_text}")
-
-    # ======== KV Cache 版本 ========
-    prompt_len = input_ids.shape[1]
-    max_total_len = prompt_len + args.max_new_tokens
-    # setup_cache 在 forward 之前调用，给每一层的 Qwen3Attention 分配 cache 内存
-    model.setup_cache(max_seq_len=max_total_len, dtype=dtype, device=args.device)
-
-    output_ids = greedy_generate_with_cache(
-        model=model,
-        input_ids=input_ids,
-        max_new_tokens=args.max_new_tokens,
-        eos_token_id=tokenizer.eos_token_id,
-    )
-
-    #注意这里只有一个逗号 是取原本input_ids.shape[1] 也就是s之后的所有token
-    completion_ids = output_ids[:, prompt_len:]
-    # 这里decode 两个东西 一个是全文对应full text
-    # 另一个对应completion_text 用的completion_text
-    full_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    completion_text = tokenizer.decode(completion_ids[0], skip_special_tokens=True)
-
-    print("\n=== Generation Result (with KV Cache) ===")
+    print("\n=== Generation Result (with KV Cache) with model runner ===")
     print(f"Prompt: {args.prompt}")
-    print(f"Completion: {completion_text}")
-    print(f"Full text: {full_text}")
+    print(f"Completion: {completion}")
 
-    # 用完之后 reset，下一个请求前调用
-    model.reset_cache()
+
 '''
-原始 no_cache 版本的输出（已验证正确）：
-Prompt token length: 6
-
-=== Generation Result ===
-Prompt: 你好，请简单介绍一下你自己。
-Completion:  你好！我是一个大型语言模型，名叫通义千问，由通义实验室研发。我能够进行多轮对话，回答各种问题，
-
-
-=== Generation Result (with KV Cache) ===
-Prompt: 你好，请简单介绍一下你自己。
-Completion:  你好！我是一个大型语言模型，名叫通义千问，由通义实验室研发。我能够进行多轮对话，回答各种问题，
-Full text: 你好，请简单介绍一下你自己。 你好！我是一个大型语言模型，名叫通义千问，由通义实验室研发。我能够进行多轮对话，回答各种问题，
+下面的是没有封装的版本
 '''
+#     # 获取tokenizer和qwen的config用于构建qwen3模型
+#     print(f"Loading tokenizer/config from: {args.model_dir}")
+#     tokenizer = AutoTokenizer.from_pretrained(args.model_dir, trust_remote_code=True)
+#     config = Qwen3Config.from_pretrained(args.model_dir)
+
+#     # 使用config来构建qwen3 模型
+#     # 并且使用自建的load weight来加载weight
+#     print("Building nano model and loading weights...")
+#     model = Qwen3ForCausalLM(config)
+#     load_weights(model, args.model_dir)
+
+#     dtype = torch.bfloat16 if args.device == "cuda:1" else torch.float32
+#     model = model.to(device=args.device, dtype=dtype)
+#     model.eval()
+
+#     #注意此处tokenizer即使拿到的是str也会返回的encoded字典里的[input_ids]也是[B,S]
+#     encoded = tokenizer(args.prompt, return_tensors="pt")
+#     #也就是这里暂时是[1,S]
+#     input_ids = encoded["input_ids"].to(args.device)
+
+#     # 注意此处是单条prompt
+#     print(f"Prompt token length: {input_ids.shape[1]}")
+
+#     # ======== 原始 no_cache 版本（已验证正确）========
+#     # output_ids = greedy_generate_no_cache(
+#     #     model=model,
+#     #     input_ids=input_ids,
+#     #     max_new_tokens=args.max_new_tokens,
+#     #     eos_token_id=tokenizer.eos_token_id,
+#     # )
+#     #
+#     # #注意这里只有一个逗号 是取原本input_ids.shape[1] 也就是s之后的所有token
+#     # completion_ids = output_ids[:, input_ids.shape[1] :]
+#     # # 这里decode 两个东西 一个是全文对应full text
+#     # # 另一个对应completion_text 用的completion_text
+#     # full_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+#     # completion_text = tokenizer.decode(completion_ids[0], skip_special_tokens=True)
+#     #
+#     # print("\n=== Generation Result ===")
+#     # print(f"Prompt: {args.prompt}")
+#     # print(f"Completion: {completion_text}")
+#     # print(f"Full text: {full_text}")
+
+#     # ======== KV Cache 版本 ========
+#     prompt_len = input_ids.shape[1]
+#     max_total_len = prompt_len + args.max_new_tokens
+#     # setup_cache 在 forward 之前调用，给每一层的 Qwen3Attention 分配 cache 内存
+#     model.setup_cache(max_seq_len=max_total_len, dtype=dtype, device=args.device)
+
+#     output_ids = greedy_generate_with_cache(
+#         model=model,
+#         input_ids=input_ids,
+#         max_new_tokens=args.max_new_tokens,
+#         eos_token_id=tokenizer.eos_token_id,
+#     )
+
+#     #注意这里只有一个逗号 是取原本input_ids.shape[1] 也就是s之后的所有token
+#     completion_ids = output_ids[:, prompt_len:]
+#     # 这里decode 两个东西 一个是全文对应full text
+#     # 另一个对应completion_text 用的completion_text
+#     full_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+#     completion_text = tokenizer.decode(completion_ids[0], skip_special_tokens=True)
+
+#     print("\n=== Generation Result (with KV Cache) ===")
+#     print(f"Prompt: {args.prompt}")
+#     print(f"Completion: {completion_text}")
+#     print(f"Full text: {full_text}")
+
+#     # 用完之后 reset，下一个请求前调用
+#     model.reset_cache()
+# '''
+# 原始 no_cache 版本的输出（已验证正确）：
+# Prompt token length: 6
+
+# === Generation Result ===
+# Prompt: 你好，请简单介绍一下你自己。
+# Completion:  你好！我是一个大型语言模型，名叫通义千问，由通义实验室研发。我能够进行多轮对话，回答各种问题，
+
+
+# === Generation Result (with KV Cache) ===
+# Prompt: 你好，请简单介绍一下你自己。
+# Completion:  你好！我是一个大型语言模型，名叫通义千问，由通义实验室研发。我能够进行多轮对话，回答各种问题，
+# Full text: 你好，请简单介绍一下你自己。 你好！我是一个大型语言模型，名叫通义千问，由通义实验室研发。我能够进行多轮对话，回答各种问题，
+# '''
 
 
 if __name__ == "__main__":
