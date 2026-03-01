@@ -1,10 +1,10 @@
 class Request:
-      def __init__(self, request_id: int, prompt_token_ids: list[int], num_layers:
-  int):
+      def __init__(self, request_id: int, prompt_token_ids: list[int], num_layers: int, max_new_tokens: int):
           self.request_id = request_id
           self.prompt_token_ids = list(prompt_token_ids)
           self.output_token_ids: list[int] = []
           self.finished = False
+          self.max_new_tokens = max_new_tokens  # scheduler 用来判断何时停止
           self.kv_caches = [None] * num_layers   # 每层一个 KVCache，由 runner 分配
         # 把kv cache从模型放在request这里 
         # 通过这样子模型本身只管运算逻辑

@@ -10,6 +10,7 @@ from transformers import AutoTokenizer, Qwen3Config
 from nanovllm.model.qwen3 import Qwen3ForCausalLM
 from nanovllm.utils.loader import load_weights
 from nanovllm.engine.model_runner import ModelRunner
+from nanovllm.engine.llm_engine import LLMEngine
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -123,17 +124,37 @@ def greedy_generate_with_cache(
 
 def main() -> None:
     args = parse_args()
-    runner = ModelRunner(
-          model_dir=args.model_dir,
-          device=args.device,
-          dtype=torch.bfloat16 if "cuda" in args.device else torch.float32,
-      )
+    dtype = torch.bfloat16 if "cuda:1" in args.device else torch.float32
 
-    completion = runner.generate(args.prompt, args.max_new_tokens)
+    # ======== LLMEngine 版本（scheduler + 多请求） ========
+    engine = LLMEngine(
+        model_dir=args.model_dir,
+        device=args.device,
+        dtype=dtype,
+    )
 
-    print("\n=== Generation Result (with KV Cache) with model runner ===")
-    print(f"Prompt: {args.prompt}")
-    print(f"Completion: {completion}")
+    # 提交两个请求，演示 scheduler 串行调度
+    rid1 = engine.add_request(args.prompt, args.max_new_tokens)
+    rid2 = engine.add_request("请用一句话解释什么是KV cache。", args.max_new_tokens)
+
+    engine.run_until_done()
+
+    print("\n=== Generation Result (LLMEngine) ===")
+    print(f"[req {rid1}] Prompt: {args.prompt}")
+    print(f"[req {rid1}] Completion: {engine.get_output(rid1)}")
+    print(f"[req {rid2}] Prompt: 请用一句话解释什么是KV cache。")
+    print(f"[req {rid2}] Completion: {engine.get_output(rid2)}")
+    '''
+    === Generation Result (LLMEngine) ===
+    [req 0] Prompt: 你好，请简单介绍一下你自己。
+    [req 0] Completion:  你好！我是一个大型语言模型，名叫通义千问，由通义实验室研发。我能够进行多轮对话，回答各种问题，
+    [req 1] Prompt: 请用一句话解释什么是KV cache。
+    [req 1] Completion:  KV cache是Transformer模型中用于存储已生成的键（Key）和值（Value）向量的机制，以便在解码过程中高效地
+    '''
+    # ======== ModelRunner 单请求版本（保留作对比） ========
+    # runner = ModelRunner(model_dir=args.model_dir, device=args.device, dtype=dtype)
+    # completion = runner.generate(args.prompt, args.max_new_tokens)
+    # print(f"Completion: {completion}")
 
 
 '''

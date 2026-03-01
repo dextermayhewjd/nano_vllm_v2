@@ -83,12 +83,27 @@ class ModelRunner:
         logits = self.model(input_ids, positions)  # [1, 1, vocab_size]
         return int(logits[:, -1, :].argmax(dim=-1).item())
 
+    '''
+    这里的generate是一个一锅端的函数
+    首先通过挂载的的tokenizer来处理prompt 获取token ids
+    然后根据生成request 其中request的kv cache layer和model runner挂钩没什么问题
+    根据max tkoens 来控制这里kv cache到底allocate多少 
+        注意这里的kvcache是放在request的
+    随后bind
+    prefill decode loop unbind
+   
+    关键问题是这里是一锅端的, 
+        把怎么做decode和prefill 和 决定要做什么混合在一起了
+        没有办法同时处理多个请求, 除非超长延迟等第一个request处理完
+    所以需要设计一个scheduler来把这些分开
+    '''
     def generate(self, prompt: str, max_new_tokens: int) -> str:
         prompt_ids = self.tokenizer(prompt)["input_ids"]
         request = Request(
             request_id=0,
             prompt_token_ids=prompt_ids,
             num_layers=self.num_layers,
+            max_new_tokens=max_new_tokens,
         )
 
         max_total = len(request) + max_new_tokens
